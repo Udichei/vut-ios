@@ -1,0 +1,378 @@
+#!/bin/sh
+
+export POSIXLY_CORRECT=yes
+export LC_NUMERIC=en_US.UTF-8
+
+
+COMMAND=""
+FILTR=""
+FILTR_T1=""
+FILTR_T2=""
+FILTR_T3=""
+FILTR_W=""
+FILTR_AB=""
+TICKER=""
+TICKER2="!"
+TICKER3="!"
+TICKER4="!"
+WIDTH=""
+INPUT=""
+READ_INPUT=""
+DATE=""
+EDITED_FILE=""
+
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+    list-tick | profit | pos | last-price | hist-ord | graph-pos)
+        COMMAND="$1"
+        shift
+        ;;
+    -a | -b)
+        FILTR_AB="$1"
+        FILTR="$1"
+        DATE="$2 $3"
+        shift
+        shift
+        shift
+        ;;
+    -t)
+        if [ "$FILTR_T1" = "-t" ] && [ "$FILTR_T2" = "-t" ] && [ "$FILTR_T3" = "-t" ];
+          then
+          TICKER4="$2"
+        elif [ "$FILTR_T1" = "-t" ]&& [ "$FILTR_T2" = "-t" ];
+          then
+          TICKER3="$2"
+          FILTR_T3="$1"
+        elif [ "$FILTR_T1" = "-t" ];
+          then
+          TICKER2="$2"
+          FILTR_T2="$1"
+        else
+          TICKER="$2"
+          FILTR_T1="$1"
+          FILTR="$1"
+        fi
+        shift
+        shift
+        ;;
+    -w)
+        if [ "$FILTR_W" = "-w" ]; then
+            echo "ERROR"
+            exit 0
+        fi
+        FILTR_W="$1"
+        WIDTH="$2"
+        shift
+        shift
+        ;;
+    -h | --help)
+        if [ "$#" = 1 ] || [ "$#" -gt 2 ]; then
+            PRINT=$(echo "list-tick:listing of occurring stock exchange symbols." && \
+                    echo "profit:statement of total profit from closed positions." && \
+                    echo "pos:list of values of currently held positions sorted in descending order by value." && \
+                    echo "last-price:listing of the last known price for each ticker." && \
+                    echo "hist-ord:histogram report of the number of transactions according to the ticker." && \
+                    echo "graph-pos:statement of the graph of values of held positions according to the ticker.")
+            longestNum=0
+            longestNum=$(echo "PRINT" |\
+            awk -F ":" \
+            '{num=sprintf($2)
+            if(length(num) > longestNum)
+            {longestNum=length(num)}}
+            END {print longestNum}')
+
+            PRINT=$(echo  "$PRINT" | \
+            awk -F ":" \
+            -v IN="$longestNum" \
+            '{printf("%-10s : %*s\n", $1, IN, $2)}')
+            echo "$PRINT"
+        elif [ "$#" = 2 ]; then
+            case "$2" in
+            list-tick)
+              echo "list-tick : listing of occurring stock exchange symbols."
+              ;;
+            profit)
+              echo "profit : statement of total profit from closed positions."
+              ;;
+            pos)
+              echo "pos : list of values of currently held positions sorted in descending order by value."
+              ;;
+            last-price)
+              echo "last-price : listing of the last known price for each ticker."
+              ;;
+            hist-ord)
+              echo "hist-ord : histogram report of the number of transactions according to the ticker."
+              ;;
+            graph-pos)
+              echo "graph-pos : statement of the graph of values of held positions according to the ticker."
+              ;;
+            esac
+        fi
+        exit 0
+        ;;
+
+    *.log | *.LOG)
+        INPUT="$1"
+        READ_INPUT=$(cat $INPUT)
+        EDITED_FILE=$(echo "$READ_INPUT")
+        shift
+        ;;
+    *.log.gz)
+        INPUTGZ=$(gzip -d -c $1)
+        EDITED_FILE=$(echo "$INPUTGZ")
+        shift
+        ;;
+    *)
+        echo "What should I do with $1 now ヾ(｀ヘ´)ﾉﾞ?"
+        exit 0
+        shift
+        ;;
+    esac
+done
+
+
+
+if [ "$FILTR_T1" = "-t" ]; then
+
+    EDITED=$(echo "$EDITED_FILE" | \
+    awk -F ";" \
+    -v T1="$TICKER" \
+    -v T2="$TICKER2" \
+    -v T3="$TICKER3" \
+    -v T4="$TICKER4" \
+    '{if($2 == T1 || $2 == T2 || $2 == T3 || $2 == T4)
+      {print}}')
+fi
+
+
+if [ "$FILTR_AB" = "-a" ]; then
+    EDITED=$(echo "$EDITED_FILE" | awk -F ';' -v NEWDATE="$DATE" '{if($1 > NEWDATE){print}}')
+fi
+
+
+if [ "$FILTR_AB" = "-b" ]; then
+    EDITED=$(echo "$EDITED_FILE" | awk -F ';' -v NEWDATE="$DATE" '{if($1 < NEWDATE){print}}')
+fi
+
+
+if [ "$FILTR" = "" ]; then
+   EDITED=$(echo "$EDITED_FILE")
+fi
+
+
+case "$COMMAND" in
+    list-tick)
+        EDITED=$(echo "$EDITED"| cut -d ';' -f2 | sort | uniq -d)
+        ;;
+    profit)
+        EDITED=$(echo "$EDITED" | \
+        awk -F ';' \
+        '{printf ("%.2f", ($4*$6))}{print ";" $3}' |\
+        awk -F ';' \
+        '{if($2 == "buy"){sum-=$1}else{sum+=$1}}
+        END{printf("%.2f\n", sum)}')
+        ;;
+    pos)
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        '{print $2 ";" $1 ";" $3 ";" $6 ";" $4}' |  sort -t ";" -k 1,1 )
+
+        Start=$(echo "$EDITED" | head -n1 | sed -e 's/\s.*$//' | sed 's/;/ /g' | sed -e 's/\s.*$//' )
+
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        -v new_start="$Start" \
+        -v summ=0 \
+        -v last=0 \
+        '{if($1 == new_start)
+          {
+          if($3 == "buy")
+              {sum+=$4}
+            else
+              {sum-=$4}
+          last=$5
+          }
+        else{
+          printf("%s;%s;%s\n", new_start, sum, last)
+          new_start=$1
+          sum=0
+          if($3 == "buy")
+              {sum+=$4}
+            else
+              {sum-=$4}}
+        }END{printf("%s;%s;%s\n", new_start, sum, last)}'  )
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        '{printf("%.2f:%s\n", ($2*$3), $1)}' | sort -n -r | \
+        awk -F ":" \
+        '{print $2 ":" $1}')
+
+        longestNum=0
+        longestNum=$(echo "$EDITED" |\
+        awk -F ":" \
+        '{num=sprintf($2)
+        if(length(num) > longestNum)
+        {longestNum=length(num)}}
+        END {print longestNum}')
+
+        EDITED=$(echo  "$EDITED" | \
+        awk -F ":" \
+        -v IN="$longestNum" \
+        '{printf("%-9s : %*s\n", $1, IN, $2)}')
+
+        ;;
+    last-price)
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        '{print $2 ";" $1 ";" $4}' | \
+        sort -t ";"  -k 1,1 | \
+        sort -r | \
+        sort -t ";" -u -k 1,1 | \
+        awk -F ";" '{print $1 ":" $3}' )
+
+        longestNum=0
+        longestNum=$(echo "$EDITED" |\
+        awk -F ":" \
+        '{num=sprintf($2)
+        if(length(num) > longestNum)
+        {longestNum=length(num)}}
+        END {print longestNum}')
+
+        EDITED=$(echo  "$EDITED" | \
+        awk -F ":" \
+        -v IN="$longestNum" \
+        '{printf("%-9s : %*s\n", $1, IN, $2)}' )
+        ;;
+    hist-ord)
+        EDITED=$(echo "$EDITED" | awk -F ";" '{print $2}' | sort | uniq -c)
+
+        if [ "$FILTR_W" = "-w" ]; then
+
+          EDITED=$(echo "$EDITED" | \
+          awk  '{print $2 ":" $1}')
+
+
+          RESERV=$(echo "$EDITED" | \
+          awk -F ":" \
+          -v MAX=0 \
+          '{if($2 > MAX)
+          {MAX=$2}}END{print MAX}')
+
+
+          EDITED=$(echo "$EDITED" | \
+            awk -F ":" \
+            -v MAX=$RESERV \
+            -v vstup=$WIDTH \
+            '{printf("%s:%.f\n", $1, (($2*vstup)/MAX))}')
+
+
+            EDITED=$(echo "$EDITED" | \
+            awk -F ":" '{for(i=$2;i>0;i--){printf("#")}  printf(":%s\n", $1)}' | \
+            awk -F ':' '{print $2 ":" $1}')
+
+          else
+            EDITED=$(echo "$EDITED" | \
+            awk '{for(i=$1;i>0;i--){printf("#")}  printf(":%s\n", $2)}' | \
+            awk -F ':' '{print $2 ":" $1}')
+        fi
+
+
+        EDITED=$(echo  "$EDITED" | \
+        awk -F ":" \
+        '{printf("%-9s : %s\n", $1, $2)}')
+
+
+        ;;
+    graph-pos)
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        '{print $2 ";" $1 ";" $3 ";" $6 ";" $4}' | sort -t ";" -k 1,1 )
+
+        #we are looking for first TICKER
+        Start=$(echo "$EDITED" | head -n1 | sed -e 's/\s.*$//' | sed 's/;/ /g' | sed -e 's/\s.*$//' )
+
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        -v new_start="$Start" \
+        -v summ=0 \
+        -v last=0 \
+        '{if($1 == new_start)
+          {
+          if($3 == "buy")
+              {sum+=$4}
+            else
+              {sum-=$4}
+          last=$5
+          }
+        else{
+          printf("%s;%s;%s\n", new_start, sum, last)
+          new_start=$1
+          sum=0
+          if($3 == "buy")
+              {sum+=$4}
+            else
+              {sum-=$4}}
+        }END{printf("%s;%s;%s\n", new_start, sum, last)}')
+
+        EDITED=$(echo "$EDITED" | \
+        awk -F ";" \
+        '{printf("%s:%.2f\n", $1, ($2*$3))}')
+
+        RESERV=$(echo "$EDITED" | sed s/-//g | \
+        awk -F ":" \
+        -v MAX=0 \
+        '{if($2 > MAX)
+        {MAX=$2}}END{print MAX}')
+
+
+        if [ "$FILTR_W" = "-w" ]; then
+
+            EDITED=$(echo "$EDITED" | \
+            awk -F ":" \
+            -v MAX=$RESERV \
+            -v vstup=$WIDTH \
+            '{printf("%s:%.f\n", $1, (($2*vstup)/MAX))}')
+
+            EDITED=$(echo "$EDITED" | \
+            awk -F ":"\
+            '{if($2 > 0)
+            {for(i=$2;i>0;i--){printf("#")}}
+            else
+            {for(i=$2;i<0;i++){printf("!")}}
+              printf(":%s\n", $1)}' | \
+            awk -F ":" '{print $2 ":" $1}' | \
+            awk -F ":" '{printf("%-9s : %s\n", $1, $2)}')
+
+          else
+            EDITED=$(echo "$EDITED" | \
+            awk -F ":" \
+            -v vstup=1000 \
+            '{printf("%s:%.f\n", $1, ($2/1000))}')
+
+
+            EDITED=$(echo "$EDITED" | \
+            awk -F ":"\
+            '{if($2 > 0)
+            {for(i=$2;i>0;i--){printf("#")}}
+            else
+            {for(i=$2;i<0;i++){printf("!")}}
+              printf(":%s\n", $1)}' | \
+            awk -F ":" '{print $2 ":" $1}' | \
+            awk -F ":" '{printf("%-9s : %s\n", $1, $2)}')
+        fi
+        ;;
+    *)
+        ;;
+esac
+
+
+
+
+echo "$EDITED"
+
